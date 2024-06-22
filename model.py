@@ -75,20 +75,18 @@ class SemiSupervisedFuzzyClusterer:
     def update_U(self, x, U_bar):
         e = 1 / (1 - self.m)
         d = np.sum((x[:, None, ...] - self.v) ** 2, axis=-1)
-
-        multiplier = np.sum(1 - U_bar, axis=-1, keepdims=True)
+        multiplier = 1 - np.sum(U_bar, axis=-1, keepdims=True)
         num = d ** e
         den = np.sum(num, axis=-1, keepdims=True)
-
         self.U = U_bar + multiplier * num / den
-    
+
     def fit(self, x, U_bar, eps):
         losses = []
-        
+        self.update_centeroids(x, U_bar)
         while True:
-            self.update_centeroids(x, U_bar)
             U_old = self.U
             self.update_U(x, U_bar)
+            self.update_centeroids(x, U_bar)
             loss = self.compute_J(x, U_bar).item()
             losses.append(loss)
 

@@ -1,66 +1,72 @@
 import numpy as np
-from sklearn.metrics import pairwise_distances
-
+from scipy.special import comb
 
 def fuzzy_partition_coefficient(U):
-    C, N = U.shape
-    numerator = np.sum(U ** 2)
-    denominator = C * N
-    return numerator / denominator
+    N = U.shape[1]
+    F_c = np.sum(U**2) / N
+    return F_c
 
 def partition_entropy(U):
-    pe = U * np.log2(U)
-    pe = np.sum(pe, axis=0)
-    pe = -np.mean(pe, axis=-1)
-    return pe
+    N = U.shape[1]
+    U_log_U = np.where(U > 0, U * np.log(U), 0)
+    H_c = - np.sum(U_log_U) / N
+    return H_c
 
-def calinski_harabasz_index(X, U, V):
-    U=U.T
-    n_samples, n_features = X.shape
-    n_clusters = V.shape[0]
+def calinski_harabasz_index(X, U):
+    labels = np.argmax(U, axis=0)
 
-    # Tính trung bình toàn bộ của dữ liệu
+    n_clusters = len(np.unique(labels))
+    n_samples = X.shape[0]
     overall_mean = np.mean(X, axis=0)
 
-    # Tính tổng bình phương giữa các cụm (SSB)
-    SSB = 0.0
-    for j in range(n_clusters):
-        n_cluster_points = np.sum(U[:, j])
-        cluster_mean = V[j]
-        SSB += n_cluster_points * np.sum((cluster_mean - overall_mean) ** 2)
+    between_dispersion = 0
+    for k in np.unique(labels):
+        cluster_k = X[labels == k]
+        cluster_mean = np.mean(cluster_k, axis=0)
+        between_dispersion += len(cluster_k) * np.sum((cluster_mean - overall_mean) ** 2)
 
-    # Tính tổng bình phương trong mỗi cụm (SSW)
-    SSW = 0.0
-    for j in range(n_clusters):
-        cluster_points = X - V[j]
-        SSW += np.sum(U[:, j] * np.sum(cluster_points ** 2, axis=1))
+    within_dispersion = 0
+    for k in np.unique(labels):
+        cluster_k = X[labels == k]
+        cluster_mean = np.mean(cluster_k, axis=0)
+        within_dispersion += np.sum((cluster_k - cluster_mean) ** 2)
 
-    # Tính chỉ số Calinski-Harabasz (VRC)
-    VRC = (SSB / (n_clusters - 1)) / (SSW / (n_samples - n_clusters))
-    return VRC
+    if within_dispersion == 0:
+        return 0.0
+    score = (between_dispersion / (n_clusters - 1)) / (within_dispersion / (n_samples - n_clusters))
+    return score
 
-def davies_bouldin_index(X, U, V):
-    U = U.T
-    n_samples, n_features = X.shape
-    n_clusters = V.shape[0]
 
-    # Tính sự phân tán (scatter) của từng cụm
-    S = np.zeros(n_clusters)
-    for i in range(n_clusters):
-        cluster_points = X - V[i]
-        S[i] = np.sqrt(np.sum(U[:, i] * np.sum(cluster_points ** 2, axis=1)) / np.sum(U[:, i]))
 
-    # Tính khoảng cách giữa các cụm
-    M = np.zeros((n_clusters, n_clusters))
-    for i in range(n_clusters):
-        for j in range(i + 1, n_clusters):
-            M[i, j] = M[j, i] = np.linalg.norm(V[i] - V[j])
+# a = tp    same class, same cluster
+# d = tn    different class, different cluser
+# b = fn    same class, different cluster
+# c = fp    different class, same cluster
 
-    # Tính chỉ số Davies–Bouldin cho mỗi cụm
-    R = np.zeros(n_clusters)
-    for i in range(n_clusters):
-        R[i] = np.max([(S[i] + S[j]) / M[i, j] for j in range(n_clusters) if i != j])
+def compute_confusion(true_labels, U):
+    pred_labels = np.argmax(U, axis=0)
+    clusters = pred_labels
+    classes = true_labels
+    tp_plus_fp = comb(np.bincount(clusters), 2).sum()
+    tp_plus_fn = comb(np.bincount(classes), 2).sum()
+    A = np.c_[(clusters, classes)]
+    tp = sum(comb(np.bincount(A[A[:, 0] == i, 1]), 2).sum() for i in set(clusters))
+    fp = tp_plus_fp - tp
+    fn = tp_plus_fn - tp
+    M = comb(len(A), 2)
+    tn = M - tp - fp - fn
+    return tp, fp, fn, tn, M
 
-    # Tính Davies–Bouldin Index
-    DBI = np.mean(R)
-    return DBI
+def rand_index(true_labels, U):
+    tp, fp, fn, tn, M = compute_confusion(true_labels, U)
+    return (tp + tn) / (tp + fp + fn + tn)
+
+def adjusted_rand_index(true_labels, U):
+    tp, fp, fn, tn, M = compute_confusion(true_labels, U)
+    numerator = tp - (tp + fp)*(tp + fn)/M
+    denominator = (tp + fp + tp + fn)/2 - (tp + fp)*(tp + fn)/M
+    return numerator/denominator
+
+def jaccard_coefficient(true_labels, U):
+    tp, fp, fn, tn, M = compute_confusion(true_labels, U)
+    return tp / (tp + fn + fp)
